@@ -5,7 +5,7 @@ var Kafka = require('node-rdkafka');
 
 
 var argv = require('optimist')
-    .usage('Usage: $0 -e <endpoint> -k <apikey> -s <apisecret> -t <topic> -S <ssl ca location> -v')
+    .usage('Usage: $0 -e <endpoint> -k <apikey> -s <apisecret> -t <topic> -S <ssl ca location> -v -r <schema registry url>')
     .demand(['e', 'k', 's', 't'])
     .boolean(['v'])
     .alias('e', 'endpoint')
@@ -18,6 +18,9 @@ var argv = require('optimist')
     .describe('t', 'Kafka Topic to consume from')
     .alias('v', 'verbose')
     .describe('v', 'Verbose mode')
+    .alias('r', 'registry')
+    .describe('r', 'Schema registry')
+    .default('r', '')
     .alias('S', 'sslcaloc')
     .describe('S', 'SSL CA Location')
     .default('S', '/usr/local/etc/openssl/cert.pem')
@@ -25,20 +28,21 @@ var argv = require('optimist')
     .describe('?', 'Print usage information')
     .alias('V', 'version')
     .describe('V', 'Print version information');
-      
+
 argv = argv.argv;
 
-if ( argv.help === true ) {
-    console.log( 'Usage: ccloud-console-producer -e <endpoint> -k <apikey> -s <apisecret> -t <topic>');
-    console.log( '\nOptions:');
-    console.log( '  -e, --endpoint   Confluent Cloud Endpoints (Broker List)     [required]');
-    console.log( '  -k, --apikey     Confluent Cloud API Key                     [required]');
-    console.log( '  -s, --apisecret  Confluent Cloud API Secret                  [required]');
-    console.log( '  -t, --topic      Kafka Topic to consumer from                [required]');
-    console.log( '  -v, --verbose    Verbose mode                                [boolean]');
-    console.log( '  -V, --version    Print version information                   [boolean]');
-    console.log( '  -S, --sslcaloc   SSL CA Location (default = /usr/local/etc/openssl/cert.pem)');
-    console.log( '  -?, --help       Print usage information                      ');
+if (argv.help === true) {
+    console.log('Usage: ccloud-console-producer -e <endpoint> -k <apikey> -s <apisecret> -t <topic>');
+    console.log('\nOptions:');
+    console.log('  -e, --endpoint   Confluent Cloud Endpoints (Broker List)     [required]');
+    console.log('  -k, --apikey     Confluent Cloud API Key                     [required]');
+    console.log('  -s, --apisecret  Confluent Cloud API Secret                  [required]');
+    console.log('  -t, --topic      Kafka Topic to consumer from                [required]');
+    console.log('  -r, --registry   Schema registry url                         [url]');
+    console.log('  -v, --verbose    Verbose mode                                [boolean]');
+    console.log('  -V, --version    Print version information                   [boolean]');
+    console.log('  -S, --sslcaloc   SSL CA Location (default = /usr/local/etc/openssl/cert.pem)');
+    console.log('  -?, --help       Print usage information                      ');
     process.exit();
 }
 
@@ -48,9 +52,9 @@ if (argv.version) {
     process.exit();
 }
 
-var producer;
+let producer;
 try {
-    producer = new Kafka.Producer({
+    const requiredSettings = {
         'client.id': 'ccloud-node-console-producer',
         'metadata.broker.list': argv.endpoint,
         'retry.backoff.ms': 200,
@@ -65,13 +69,23 @@ try {
         'sasl.password': argv.apisecret,
         'ssl.ca.location': argv.sslcaloc,
         'api.version.request': true //added to force 0.10.x style timestamps on all messages
-    });  
+    };
+
+    const schemaSettings = argv.registry !== null && argv.registry !== '' ? {
+        'basic.auth.credentials.source': 'USER_INFO',
+        'schema.registry.basic.auth.user.info': `${argv.apikey}:${argv.apisecret}`,
+        'schema.registry.url': argv.registry
+    } : {};
+
+    const settings = Object.assign(requiredSettings, schemaSettings);
+
+    producer = new Kafka.Producer(settings);
 
     // Connect to the broker manually
     producer.connect();
 
     producer
-        .on('ready', function() {
+        .on('ready', function () {
             // Wait for the ready event before proceeding with input prompt
             console.log('Confluent Cloud connection is ready');
             var prompt = require('prompt');
@@ -86,11 +100,11 @@ try {
 
                 var key = null;
                 //set the key
-                if ( result.key ) {
+                if (result.key) {
                     key = result.key.toString();
-                } 
+                }
 
-                if (result.value === null || argv.topic === "") {                    
+                if (result.value === null || argv.topic === "") {
                     console.log("Ignored request to send a NULL message or NULL topic");
                     process.exit();
                 } else {
@@ -101,7 +115,7 @@ try {
                         key                                         // key
                     );
                     console.log('Message published');
-                    producer.flush(2000 , function () {
+                    producer.flush(2000, function () {
                         process.exit();
                     });
                 }
@@ -109,32 +123,32 @@ try {
                 function onErr(err) {
                     console.log(err);
                     return 1;
-                }              
-            })   
-        .on('error', function(err) {
-            console.error('Error from producer: ' + err);
-        })
-        .on('disconnected', function(arg) {
-            console.log('producer disconnected. ' + JSON.stringify(arg));
-            process.exit();
+                }
+            })
+                .on('error', function (err) {
+                    console.error('Error from producer: ' + err);
+                })
+                .on('disconnected', function (arg) {
+                    console.log('producer disconnected. ' + JSON.stringify(arg));
+                    process.exit();
+                });
         });
-    });
     //control-c to exit
-    process.on('SIGINT', function() {
+    process.on('SIGINT', function () {
         console.log("Caught interrupt signal");
         producer.disconnect();
     });
 
-} catch(e) {
-    console.log('Caught error: ' + e);    
+} catch (e) {
+    console.log('Caught error: ' + e);
 }
 
 
- 
 
 
 
- 
+
+
 
 
 
